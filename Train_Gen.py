@@ -18,8 +18,7 @@ from logger_imp import viz_logger
 import model_Unet as model  
 
 parser = argparse.ArgumentParser(description='PyTorch Skin Lesion Training')
-parser.add_argument('--glr','--lr_for_gen',type=float,default=1e-4,help='learning rate for Generator')
-parser.add_argument('--dlr','--lr_for_dis',type=float,default=1e-4,help='learning rate for Discriminator')
+parser.add_argument('--lr','--learning_rate',type=float,default=1e-4,help='learning rate')
 parser.add_argument('--cp','--checkpoint',type=str,default='')
 parser.add_argument('--wd','--weightdecay',type=float,default=0)
 parser.add_argument('--ms','--manualSeed',type=int,default=123)
@@ -40,7 +39,6 @@ if use_cuda:
 def main():
 
 	print ("....Initializing data sampler.....")
-	# data_dir = '/Users/devansh20la/Documents/hair_removal/results/'
 	data_dir = 'data/'
 
 	dsets = {'train': imageandlabel(data_dir + 'train/', training=True), 'val': imageandlabel(data_dir + 'val/', training=False)}
@@ -51,12 +49,12 @@ def main():
 
 	print ("....Loading Model.....")
 
-	Gen = nn.DataParallel(model.gen_256())
+	net = nn.DataParallel(model.network())
 	vgg = nn.DataParallel(model.vgg_ext())
 	vgg.eval()
 
 	if use_cuda:
-		Gen = Gen.cuda()
+		net = net.cuda()
 		vgg =vgg.cuda()
 
 	MSEloss = nn.MSELoss()
@@ -66,13 +64,13 @@ def main():
 		MSEloss = MSEloss.cuda()
 		L1loss = L1loss.cuda()
 
-	optimizerG = optim.Adam([param for param in Gen.parameters() if param.requires_grad==True], lr=args.glr, betas = (0.5,0.99))
+	opti = optim.Adam([param for param in net.parameters() if param.requires_grad==True], lr=args.glr, betas = (0.5,0.99))
 
 	if args.cp:
 		state = torch.load(args.cp)
-		Gen.load_state_dict(state['Gen'])
+		net.load_state_dict(state['net'])
 
-		optimizerG.load_state_dict(state['optimizerG'])
+		opti.load_state_dict(state['optimizer'])
 
 		logger = state['logger']
 		logger.viz.env = args.n
@@ -84,8 +82,7 @@ def main():
 
 	else:
 		logger = viz_logger(env=args.n)
-		logger.add_scalar(name='gen_train_loss',title='Generator Train Loss',xlabel='epochs',ylabel='Loss')
-		logger.add_scalar(name='gen_val_loss',title='Generator Val Loss',xlabel='epochs',ylabel='Loss')
+		logger.add_scalar(name='train_loss',title='Train Loss',xlabel='epochs',ylabel='Loss')
 		logger.add_image(name='recon_img',title='Reconstructed Image')
 		logger.add_image(name='input_img',title='Input image')
 		logger.add_image(name='target_img',title='Target image')
@@ -93,7 +90,7 @@ def main():
 
 	for epoch in range(start_epoch,args.ep):
 
-		save_Gen_loss = []
+		train_loss = []
 
 		print('\nEpoch: [%d | %d]' % (epoch, args.ep))
 
@@ -110,8 +107,8 @@ def main():
 			with torch.set_grad_enabled(True):
 				#...............Train Generator..............
 				# ........Calculate reconstruction loss.......
-				optimizerG.zero_grad()
-				outputs = Gen(mis_inputs, img_mask)
+				opti.zero_grad()
+				outputs = net(mis_inputs, img_mask)
 
 			p_loss1, style_loss1 = percept_style_loss(vgg, L1loss, outputs, target_img)
 
@@ -130,17 +127,17 @@ def main():
 			#.........Train Generator with Recon_Loss + Adver_Loss
 			Gen_loss = 0.02*(p_loss1 + p_loss2) + mse_loss + valid + 6*hole + 0.1*tvd + 120*(style_loss1 + style_loss2)
 			Gen_loss.backward()
-			optimizerG.step()
+			opti.step()
 
-			save_Gen_loss.append(Gen_loss.cpu().item())
+			train_loss.append(Gen_loss.cpu().item())
 		
-		val(val_loader, Gen, L1loss, MSEloss, logger, use_cuda)
+		val(val_loader, net, L1loss, MSEloss, logger, use_cuda)
 
-		logger.update_summary(gen_train_loss = torch.Tensor([np.mean(save_Gen_loss)]))
+		logger.update_summary(train_loss = torch.Tensor([np.mean(train_loss)]))
 
-		print ('Gen_Loss = {0}'.format(np.mean(save_Gen_loss)))
+		print ('Gen_Loss = {0}'.format(np.mean(train_loss)))
 		
-		state = {'epoch': epoch,'Gen': Gen.state_dict(), 'optimizerG': optimizerG.state_dict(), 'logger':logger}
+		state = {'epoch': epoch,'net': net.state_dict(), 'optimizer': opti.state_dict(), 'logger':logger}
 
 		torch.save(state,'checkpoints/{0}/checkpoint{1}.pth.tar'.format(args.n,epoch))
 
@@ -167,7 +164,8 @@ def percept_style_loss(vgg, L1loss, x, target):
 	return perp_loss, style_loss
 
 def gram_matrix(input):
-    a, b, c, d = input.size()  # a=batch size(=1)
+    a, b, c, d = input.size()  
+    # a=batch size(=1)
     # b=number of feature maps
     # (c,d)=dimensions of a f. map (N=c*d)
 
@@ -179,11 +177,11 @@ def gram_matrix(input):
     # by dividing by the number of element in each feature maps.
     return G.div(a * b * c * d)
 
-def val(val_loader, Gen, L1loss, MSEloss, logger, use_cuda):
+def val(val_loader, net, L1loss, MSEloss, logger, use_cuda):
 
-	save_Gen_loss = []
+	save_val_loss = []
 
-	Gen.train()
+	net.train()
 
 	for batch_idx, inp_data in enumerate(val_loader,1):
 		mis_inputs = inp_data['input']
@@ -197,16 +195,16 @@ def val(val_loader, Gen, L1loss, MSEloss, logger, use_cuda):
 		with torch.set_grad_enabled(False):
 
 			#..........Generate fake data from Generator..........
-			outputs = Gen(mis_inputs, mask)
+			outputs = net(mis_inputs, mask)
 
 			loss1 = MSEloss(outputs,target_img)
 
 			loss2 = L1loss(mask*outputs, mask*target_img)
 			loss3 = L1loss((1-mask)*outputs, (1-mask)*target_img)
 
-		save_Gen_loss.append(loss1.item() + loss2.item() + loss3.item())
+		save_val_loss.append(loss1.item() + loss2.item() + loss3.item())
 
-	logger.update_summary(gen_val_loss = torch.Tensor([np.mean(save_Gen_loss)]), 
+	logger.update_summary(gen_val_loss = torch.Tensor([np.mean(save_val_loss)]), 
 		input_img = mis_inputs, 
 		recon_img = outputs, 
 		target_img= target_img)

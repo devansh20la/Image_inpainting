@@ -160,9 +160,11 @@ class gen(nn.Module):
 		return x
 
 ########################################################
-class gen_256(nn.Module):
+# Model for 25x256 image sizes
+########################################################
+class network(nn.Module):
 	def __init__(self) :
-		super(gen_256, self).__init__()
+		super(network, self).__init__()
 		self.layer1 = down_module((3,64), kernel_size=7, padding=3, bn_flag=False)
 		self.layer2 = down_module((64,128), kernel_size=5, padding=2)
 		self.layer3 = down_module((128,256), kernel_size=5, padding=2)

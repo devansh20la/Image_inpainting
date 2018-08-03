@@ -38,3 +38,11 @@ CUDA_VISIBLE_DEVICES=1,2,3 python Train_Gen.py --bs=25 --ms=123 --glr=2e-4  --ep
 ```
 
 ## Results
+![batch_1_inputs](https://user-images.githubusercontent.com/16810812/43622189-e7730e68-96a8-11e8-9b00-e46d55bb8358.png)
+![batch_1_outputs1](https://user-images.githubusercontent.com/16810812/43622190-e780db42-96a8-11e8-8144-8532ac112aa0.png)
+![batch_15_inputs](https://user-images.githubusercontent.com/16810812/43622191-e790014e-96a8-11e8-8c5a-7947eff80b1f.png)
+![batch_15_outputs1](https://user-images.githubusercontent.com/16810812/43622192-e79fedac-96a8-11e8-9dcc-7b0a73af0631.png)
+
+## TO-DO
+
+Run the training for Celebrity dataset to compare results with the paper
